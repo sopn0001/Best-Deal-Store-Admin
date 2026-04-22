@@ -1,6 +1,41 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const api = (path, opts) => fetch(path, opts).then(r => r.json());
+async function apiJson(path, opts, fallback = null) {
+  try {
+    const res = await fetch(path, { ...opts, headers: { Accept: 'application/json', ...opts?.headers } });
+    const text = await res.text();
+    let data;
+    try {
+      data = text && text.trim() ? JSON.parse(text) : null;
+    } catch {
+      console.error('API not JSON:', path, res.status, text?.slice(0, 200));
+      return fallback;
+    }
+    if (!res.ok) {
+      console.error('API error:', path, res.status, data);
+      return fallback;
+    }
+    return data;
+  } catch (e) {
+    console.error('API fetch failed:', path, e);
+    return fallback;
+  }
+}
+
+async function apiFetch(path, opts) {
+  const res = await fetch(path, { ...opts, headers: { Accept: 'application/json', ...opts?.headers } });
+  const text = await res.text();
+  let data = null;
+  if (text && text.trim()) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`${path}: invalid JSON, ${res.status}`);
+    }
+  }
+  if (!res.ok) throw new Error(`${path}: ${res.status} ${JSON.stringify(data)}`);
+  return data;
+}
 
 const EMPTY_PRODUCT  = { name: '', description: '', price: '', category_id: '', image: '', stock: '' };
 const EMPTY_CATEGORY = { name: '', description: '' };
@@ -14,9 +49,9 @@ export default function App() {
   const [category, setCategory]   = useState(EMPTY_CATEGORY);
   const [editId, setEditId]       = useState(null);
 
-  const loadProducts  = useCallback(() => api('/products').then(setProducts), []);
-  const loadCategories = useCallback(() => api('/categories').then(setCategories), []);
-  const loadOrders    = useCallback(() => api('/makeline/orders').then(setOrders), []);
+  const loadProducts  = useCallback(() => apiJson('/products', undefined, []).then((d) => setProducts(Array.isArray(d) ? d : [])), []);
+  const loadCategories = useCallback(() => apiJson('/categories', undefined, []).then((d) => setCategories(Array.isArray(d) ? d : [])), []);
+  const loadOrders    = useCallback(() => apiJson('/makeline/orders', undefined, []).then((d) => setOrders(Array.isArray(d) ? d : [])), []);
 
   useEffect(() => { loadProducts(); loadCategories(); }, []);
 
@@ -26,10 +61,10 @@ export default function App() {
     e.preventDefault();
     const body = { ...product, price: Number(product.price), stock: Number(product.stock) };
     if (editId) {
-      await api(`/products/${editId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      await apiFetch(`/products/${editId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       setEditId(null);
     } else {
-      await api('/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      await apiFetch('/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     }
     setProduct(EMPTY_PRODUCT);
     loadProducts();
@@ -42,7 +77,7 @@ export default function App() {
 
   async function deleteProduct(id) {
     if (!confirm('Delete this product?')) return;
-    await api(`/products/${id}`, { method: 'DELETE' });
+    await apiFetch(`/products/${id}`, { method: 'DELETE' });
     loadProducts();
   }
 
@@ -50,21 +85,21 @@ export default function App() {
 
   async function saveCategory(e) {
     e.preventDefault();
-    await api('/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(category) });
+    await apiFetch('/categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(category) });
     setCategory(EMPTY_CATEGORY);
     loadCategories();
   }
 
   async function deleteCategory(id) {
     if (!confirm('Delete this category?')) return;
-    await api(`/categories/${id}`, { method: 'DELETE' });
+    await apiFetch(`/categories/${id}`, { method: 'DELETE' });
     loadCategories();
   }
 
   // ── Orders ────────────────────────────────────────────────────────────────
 
   async function updateStatus(id, status) {
-    await api(`/makeline/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
+    await apiFetch(`/makeline/orders/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
     loadOrders();
   }
 
